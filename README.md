@@ -7,13 +7,15 @@ Enemies also use a selected skill from the database.
 Uses animations from database for all skills.
 - Add custom range of attack for enemies.
 - Make skills unchangeable when in cooldown
-- Make map visuals for equipped skills (and items)
+- Make map visuals(meter with icons and names) for equipped skills
 - Add more skills for enemies.
 - Make enemies drop items from database
 - Make menu to equip weapons and items (prob use copy of equipment menu)
-- Add ranges to weapon equip.
 - Test surround range
 - Make cooldown meter for dash.
-- Make summon magic that hurts every enemy in the area.
-- Make battle update in background. Use start method in event to create enemy.
-- Add cooldown to all abilities when using one ability.
+- Make battle update in background. Use start method in event to create enemy.(Still trying.)
+
+Things done.
+- Add ranges to weapon equip.
+- Make magic that hurts every enemy in the area.
+- Add cooldown to all skills when using one skills. (To allow the animations to complete.)
