@@ -1,13 +1,16 @@
 =begin
-MBS.battle(Enemy ID, $game_map.map_id, @event_id, $game_party.leader.id) 
-MBS.battle( 1, 112,$game_map.map_id, @event_id, $game_party.leader.id)
-MBS.health_add(enemy, amount)
+MBS.battle(Enemy_Num, Enemy_ID, Hit_animation, Attack_Animation, $game_map.map_id, @event_id)
 =end
 
-  MEM_VARIABLE    = 203
-  HIT_ANIMATION   = 112
-  PLAYER_COOLDOWN = 60
-  MAX_AGILITY     = 250
+  MEM_VARIABLE      = 203
+  HIT_ANIMATION     = 112
+  PLAYER_COOLDOWN   = 60
+  MAX_AGILITY       = 250
+  DANGER_IMAGE      = "low_health"
+  DANGER_SOUND      = "Audio/BGS/heartbeat"
+  VICTORY_FANFARE   = "Audio/ME/Fanfare1"
+  # Max enemies allowed on map. Each zero is an enemy MAX = 20
+  MAX_ENEMIES     = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
   # Player attack animations
   PA_ANIM_RIGHT   = 120
   PA_ANIM_DOWN    = 121
@@ -24,8 +27,10 @@ class MBS < Game_Character
   def self.initial
     if $game_variables[MEM_VARIABLE] == 0
       $player_cooldowns = [0,0,0]
-      $enemies = [[0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0]]
-      $skills = [[0,0,0,0,0,0,0],[0,0,0,0,0,0,0],[0,0,0,0,0,0,0],[0,0,0,0,0,0,0]]
+      $enemies = MAX_ENEMIES
+      $enemies.each_index {|x| $enemies[x] = [0,0,0,0,0,0,0,0,0]}
+      $skills = [0,0,0,0,0]
+      $skills.each_index {|x| $skills[x] = [0,0,0,0,0,0,0]}
     else
       $enemies = $game_variables[MEM_VARIABLE][0]
       $skills = $game_variables[MEM_VARIABLE][1]
@@ -42,50 +47,30 @@ class MBS < Game_Character
   #||=========================================================================||
   def self.battle(enemy_num, enemy_id, hit_anim, atk_anim, map_id, event_id)
     actor_id = $game_party.leader.id
-    # get skill
-    set_attack_skill
-    set_skill(0, $skills[0][0])
-    set_skill(1, $skills[1][0])
-    $attack = $game_actors[actor_id].atk + rand( $game_actors[actor_id].atk / 2 )
+    
     if alive?(enemy_num) == false
       start(enemy_num, enemy_id, hit_anim, atk_anim, map_id, event_id, actor_id)
     end
     
     # Player attack
-    if range(1,0,2,0,event_id) #player_attack_radius?($game_player.direction, $game_player.x, $game_player.y, $game_map.events[event_id].x, $game_map.events[event_id].y) then
-      # HIT
-      if $player_cooldowns[0] == 0 then
+    if range($skills[0][1],0,$skills[0][2],$skills[0][3],event_id)
+      if $skills[0][6] == 0 then
         if Input.trigger?(Input::C) then
           attack(enemy_num, enemy_id, event_id)
         end
       end
     end
 	
-	#Player Skill Use [id, range, distance/width, height, cooldown, animation, timer]
-	if Input.trigger?(Input::L)
-    if $skills[0][6] == 0
-      if range($skills[0][1],0,$skills[0][2],$skills[0][3],event_id)
-        calc_damage(0, enemy_num, enemy_id)
-        $skills[0][6] = $skills[0][4]
-      end
+    #Player Skill Use [id, range, distance/width, height, cooldown, animation, timer]
+    if Input.trigger?(Input::L)
+      use_player_skill(1, enemy_num, enemy_id, event_id)
     end
-  end
-  if Input.trigger?(Input::R)
-    if $skills[1][6] == 0
-      if range($skills[1][1],0,$skills[1][2],$skills[1][3],event_id)
-        calc_damage(1, enemy_num, enemy_id)
-        $skills[1][6] = $skills[1][4]
-      end
+    if Input.trigger?(Input::R)
+      use_player_skill(2, enemy_num, enemy_id, event_id)
     end
-  end
-  if Input.trigger?(Input::X)
-    if $skills[3][6] == 0
-      if range($skills[3][1],0,$skills[3][2],$skills[3][3],event_id)
-        calc_damage(3, enemy_num, enemy_id)
-        $skills[3][6] = $skills[3][4]
-      end
+    if Input.trigger?(Input::X)
+      use_player_skill(3, enemy_num, enemy_id, event_id)
     end
-  end
     
     # Enemy Attacking
     if range(1,1,1,0,event_id) #enemy_attack_radius?(event_id, $game_player.x, $game_player.y, $game_map.events[event_id].x, $game_map.events[event_id].y) then
@@ -94,29 +79,15 @@ class MBS < Game_Character
     
     #Enemy deaths
     enemy_death_check(enemy_num, enemy_id, map_id, event_id) #Check if enemy is dead
+    # victory - all enemies are dead
     if all_dead? == true
-      Audio.me_play("Audio/ME/Fanfare1", 80, 100)
+      Audio.me_play(VICTORY_FANFARE, 80, 100)
       $game_map.autoplay
     end
-    
-    #player death
-    if $game_actors[actor_id].hp == 0
-      $game_actors[actor_id].set_graphic("Damage1", 4, "Actor4", 4)
-      $game_player.refresh
-      Audio.se_play("Audio/SE/Collapse3", 80, 100)
-      tone = Tone.new(0,0,0,255)
-      $game_map.screen.start_tone_change(tone, 1)
-      SceneManager.call(Scene_Gameover)
-    end
-    
-    #Cooldown Timers update
-    #update_timers(enemy_num)
-    
-    
   end # <= End of Battle
   
   #||=========================================================================||
-  #|| BATTLE SYSTEM   ===============================================================||
+  #|| BATTLE SYSTEM   ========================================================||
   #||=========================================================================||
   
   def self.start(enemy_num, enemy_id, hit_anim, atk_anim, map_id, event_id, actor_id)
@@ -177,7 +148,10 @@ class MBS < Game_Character
   end
   
   def self.all_dead?
-    if $enemies[0][4] == 0 && $enemies[1][4] == 0 && $enemies[2][4] == 0 && $enemies[3][4] == 0 && $enemies[4][4] == 0 && $enemies[5][4] == 0 && $enemies[6][4] == 0 && $enemies[7][4] == 0 && $enemies[8][4] == 0 && $enemies[9][4] == 0
+    i = 0
+    $enemies.each_index {|x| (i += 1) if alive?(x)}
+    if i == 0
+    #if $enemies[0][4] == 0 && $enemies[1][4] == 0 && $enemies[2][4] == 0 && $enemies[3][4] == 0 && $enemies[4][4] == 0 && $enemies[5][4] == 0 && $enemies[6][4] == 0 && $enemies[7][4] == 0 && $enemies[8][4] == 0 && $enemies[9][4] == 0
       return true
     else
       return false
@@ -200,7 +174,39 @@ class MBS < Game_Character
     return 120 - ((60 * agility) / MAX_AGILITY)
   end
   
-  def self.update_timers
+  def self.update
+    low_health_danger
+    #Player Item Use
+    if Input.trigger?(Input::Y)
+      SceneManager.call(Scene_Item)
+    end
+    #player death
+    if $game_actors[$game_party.leader.id].hp == 0
+      actor = $game_party.leader.id
+      $game_party.members.each_index {|x| actor = (x+1) if $game_actors[x+1].hp != 0}
+      if actor != $game_party.leader.id
+        $game_party.swap_order(0, $game_actors[actor].index)
+        if MAP_HUD then
+          ADIK::MAP_HUD.change_actor($game_party.leader.id)
+        end
+      else
+        if MAP_ENEMY_HP_GAUGE
+          $enemy_hp_window.close
+        end
+        $game_actors[$game_party.leader.id].set_graphic("Damage1", 4, "Actor4", 4)
+        $game_player.refresh
+        Audio.se_play("Audio/SE/Collapse3", 80, 100)
+        tone = Tone.new(0,0,0,255)
+        $game_map.screen.start_tone_change(tone, 1)
+        SceneManager.call(Scene_Gameover)
+      end
+    end
+    #set skills
+    set_attack_skill
+    set_skill(1, $skills[1][0])
+    set_skill(2, $skills[2][0])
+    set_skill(3, $skills[3][0])
+    # update timers
     $enemies.each_index {|x| ($enemies[x][5] -= 1) if ($enemies[x][5] > 0) }
     $enemies.each_index {|x| ($enemies[x][7] -= 1) if ($enemies[x][7] > 0) }
     $player_cooldowns.each_index {|x| ($player_cooldowns[x] -= 1) if ($player_cooldowns[x] > 0) }
@@ -220,17 +226,34 @@ class MBS < Game_Character
     end
   end
   
+  def self.low_health_danger
+    actor_id = $game_party.leader.id
+    health = $game_actors[actor_id].hp
+    max_health = $game_actors[actor_id].mhp
+    screen = $game_map.screen
+    if health <  (max_health / 5)
+      screen.pictures[100].show(DANGER_IMAGE, 1, 320, 240, 100, 100, 200, 0)
+      Audio.bgs_play(DANGER_SOUND, 80, 100)
+    else
+      Audio.bgs_fade(500)
+      screen.pictures[100].erase
+    end
+  end
+  
   #||=========================================================================||
   #|| DAMAGE   ===============================================================||
   #||=========================================================================||
   
   def self.attack(enemy_num, enemy_id, event_id)
+    enemy_agility = $data_enemies[enemy_id].params[6]
+    enemy_cooldown = calc_cooldown(enemy_agility)
     attack_animation
-    $player_cooldowns[0] = calc_cooldown($game_actors[$game_party.leader.id].agi)
-    calc_damage(2, enemy_num, enemy_id)
-    $enemies[enemy_num][5] += calc_cooldown($data_enemies[enemy_id].params[6]) / 4
+    $skills[0][6] = calc_cooldown($game_actors[$game_party.leader.id].agi)
+    calc_damage(0, enemy_num, enemy_id)
+    $enemies[enemy_num][5] += enemy_cooldown / 3
+    $enemies[enemy_num][5] = enemy_cooldown if $enemies[enemy_num][5] > enemy_cooldown
     # Event move away from player
-    if $enemies[enemy_id][0] <= 0
+    if $enemies[enemy_num][0] <= 0
       move_route = RPG::MoveRoute.new; move_route.repeat = false; move_route.skippable = true
       m = RPG::MoveCommand.new; m.code = 11; move_route.list.insert(0, m)
       $game_map.events[event_id].force_move_route(move_route) # For Events
@@ -239,11 +262,12 @@ class MBS < Game_Character
   
   def self.enemy_attack(enemy_num, enemy_id, event_id, actor_id)
     if $enemies[enemy_num][5] == 0
+      color = Color.new(200,20,20,110)
+      $game_map.screen.start_flash(color, 20)
       pcool = calc_cooldown($game_actors[actor_id].agi)
-      $player_cooldowns[0] += pcool / 3
-      $player_cooldowns[0] = pcool if $player_cooldowns[0] > pcool
+      $skills[0][6] += pcool / 3
+      $skills[0][6] = pcool if $skills[0][6] > pcool
       $enemies[enemy_num][5] = calc_cooldown($data_enemies[enemy_id].params[6])
-      #$game_actors[actor_id].hp -= calc_enemy_formula(1, enemy_id)
       calc_damage(1, enemy_num, enemy_id, 1)
     end
   end
@@ -257,6 +281,7 @@ class MBS < Game_Character
     formula.sub! 'a.def', "#{$game_actors[actor_id].def}"
     formula.sub! 'a.mat', "#{$game_actors[actor_id].mat}"
     formula.sub! 'a.mdf', "#{$game_actors[actor_id].mdf}"
+    #a.remove_state(Put the State ID here);
     if enemy_id != 0
       formula.sub! 'b.mhp', "#{$data_enemies[enemy_id].params[0]}"
       formula.sub! 'b.mmp', "#{$data_enemies[enemy_id].params[1]}"
@@ -301,13 +326,19 @@ class MBS < Game_Character
     actor_id = $game_party.leader.id
     skill_type = $data_skills[skill_id].damage.type
     skill_cost = $data_skills[skill_id].mp_cost
+    skill_scope = $data_skills[skill_id].scope
     player_mp = $game_actors[actor_id].mp
     if (switch == 0 && skill_cost <= player_mp) || (switch == 1 && skill_cost <= $enemies[enemy_num][1])
       if skill_type == 0 #"None"
         
       elsif skill_type == 1 #"HP Damage"
         if switch == 0
-          $enemies[enemy_num][0] -= calc_player_formula(skill_id, enemy_id)
+          if skill_scope == 2
+            $game_player.animation_id = $skills[skill][5]
+            $enemies.each_index {|x| $enemies[x][0] -= calc_player_formula(skill_id, $enemies[x][8]) if $enemies[x][4] == 1}
+          else
+            $enemies[enemy_num][0] -= calc_player_formula(skill_id, enemy_id)
+          end
         elsif switch == 1
           $game_actors[actor_id].hp -= calc_enemy_formula(skill_id, enemy_id)
         end
@@ -326,17 +357,23 @@ class MBS < Game_Character
           $enemies[enemy_num][0] += calc_enemy_formula(skill_id, enemy_id)
         end
       elsif skill_type == 4 #"MP Recovery"
-        
+        if switch == 0 && $game_actors[actor_id].mp != $game_actors[actor_id].mmp
+          $game_player.animation_id = $skills[skill][5]
+          $game_actors[actor_id].mp += calc_player_formula(skill_id, 0)
+        elsif switch == 1
+          $game_map.events[$enemies[enemy_num][8]].animation_id = $enemies[enemy_num][2]
+          $enemies[enemy_num][1] += calc_enemy_formula(skill_id, enemy_id)
+        end
       elsif skill_type == 5 #"HP Drain"
         
       elsif skill_type == 6 #"MP Drain"
       
       end
-      if switch == 0 && skill_type != 3 && skill_type != 4
-        $game_map.events[$enemies[enemy_num][8]].animation_id = $skills[skill][5] #hit on event
+      if switch == 0
+        $game_map.events[$enemies[enemy_num][8]].animation_id = $skills[skill][5] if skill_type != 3 && skill_type != 4 && skill_scope != 2
         $game_actors[actor_id].mp -= skill_cost
-      elsif switch == 1 && skill_type != 3 && skill_type != 4
-        $game_player.animation_id = $enemies[enemy_num][2]
+      elsif switch == 1
+        $game_player.animation_id = $enemies[enemy_num][2] if skill_type != 3 && skill_type != 4
         $enemies[enemy_num][1] -= skill_cost
       end
     end
@@ -361,20 +398,34 @@ class MBS < Game_Character
         $skills[equip_slot] = [skill_id, 1, 5, 0, 300, 57, 0]
       elsif skill_id == 55
         $skills[equip_slot] = [skill_id, 1, 4, 0, 360, 61, 0]
+      elsif skill_id == 68
+        $skills[equip_slot] = [skill_id, 0, 0, 0, 600, 74, 0]
       end
     end
   end
   
   def self.set_attack_skill
     skill = weapon_skill
-    set_skill(2, skill[0])
-    $skills[2][4] = calc_cooldown($game_actors[$game_party.leader.id].agi)
-    $skills[2][5] = skill[1]
+    set_skill(0, skill[0])
+    $skills[0][4] = calc_cooldown($game_actors[$game_party.leader.id].agi)
+    $skills[0][5] = skill[1]
   end
   
   def self.weapon_skill
     #[skill_id, hit_anim]
     return [1,112]
+  end
+  
+  def self.use_player_skill(skill, enemy_num, enemy_id, event_id)
+    if $skills[skill][6] == 0 && $skills[skill][0] != 0 && $data_skills[$skills[skill][0]].mp_cost <= $game_actors[$game_party.leader.id].mp
+      if range($skills[skill][1],0,$skills[skill][2],$skills[skill][3],event_id)
+        calc_damage(skill, enemy_num, enemy_id)
+        color = Color.new(20,20,200,100)
+        $game_map.screen.start_flash(color, 15)
+        $skills.each_index {|x| $skills[x][6] = 40 if $skills[x][6] < 40}
+        $skills[skill][6] = $skills[skill][4]
+      end
+    end
   end
   
   #||=========================================================================||
@@ -454,13 +505,13 @@ class Scene_Map
   alias start_fraga_mbs start
   def start
     start_fraga_mbs
-    MBS.update_timers
+    MBS.update
   end
   
   alias update_fraga_mbs update
   def update
     update_fraga_mbs
-	  MBS.update_timers
+	  MBS.update
   end
   
   alias terminate_fraga_mbs pre_terminate
